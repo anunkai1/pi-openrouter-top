@@ -15,32 +15,22 @@
  * so the OpenRouter key from ~/.pi/agent/auth.json keeps working (pi's
  * provider composition falls back to the built-in provider's auth).
  *
- * Data flow:
- *   1. scripts/sync-top50.mjs fetches OpenRouter's top-weekly ranking and
- *      writes ~/.pi/agent/openrouter-top50.json (pi-format model cards).
- *   2. This extension reads that snapshot at pi startup and registers the
- *      openrouter provider override with exactly those 50 models.
- *   3. If the snapshot is missing, fall back to the copy committed in this
- *      repo (snapshots/openrouter-top50.json); if that is missing too, we
- *      skip registration and pi shows its built-in catalog (safety net).
+ * The snapshot is STATIC: ~/.pi/agent/openrouter-top50.json was pinned on
+ * 2026-08-18 (top-weekly ranks as of that date) and is only ever read, never
+ * refreshed. To re-pin a newer list later, regenerate that file manually
+ * (source data: GET https://openrouter.ai/api/frontend/v1/models/find?active=true&fmt=cards&order=top-weekly)
+ * and restart agentchatbox so the picker cache re-probes.
  *
- * Because ACB spawns every pi child with `--offline`, and this override
- * replaces the provider's entire model list, pi's remote-catalog machinery
- * (the 4-hourly pi.dev refresh that ACB never triggers anyway) becomes
- * irrelevant for openrouter: its models are exactly what the snapshot says.
- *
- * To refresh the list: `npm run sync` in this repo (or run the script
- * directly) and restart agentchatbox so the picker cache re-probes.
+ * If the snapshot is missing, we skip registration and pi shows its
+ * built-in catalog (safety net).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const AGENT_DIR_SNAPSHOT = join(homedir(), ".pi", "agent", "openrouter-top50.json");
-const REPO_FALLBACK = join(dirname(fileURLToPath(import.meta.url)), "..", "snapshots", "openrouter-top50.json");
+const SNAPSHOT_PATH = join(homedir(), ".pi", "agent", "openrouter-top50.json");
 
 interface Snapshot {
 	checkedAt?: number;
@@ -58,25 +48,20 @@ interface Snapshot {
 }
 
 async function loadSnapshot(): Promise<Snapshot | null> {
-	for (const path of [AGENT_DIR_SNAPSHOT, REPO_FALLBACK]) {
-		try {
-			const parsed = JSON.parse(await readFile(path, "utf8")) as Snapshot;
-			if (Array.isArray(parsed.models) && parsed.models.length > 0) return parsed;
-		} catch {
-			// try the next source
-		}
+	try {
+		const parsed = JSON.parse(await readFile(SNAPSHOT_PATH, "utf8")) as Snapshot;
+		return Array.isArray(parsed.models) && parsed.models.length > 0 ? parsed : null;
+	} catch {
+		return null;
 	}
-	return null;
 }
 
 export default async function (pi: ExtensionAPI) {
 	const snapshot = await loadSnapshot();
 	if (!snapshot) {
 		console.warn(
-			"[pi-openrouter-top] no snapshot found (tried " +
-				`${AGENT_DIR_SNAPSHOT} and ${REPO_FALLBACK}); ` +
-				"leaving the built-in OpenRouter catalog in place. " +
-				"Run `npm run sync` in pi-openrouter-top to generate one.",
+			`[pi-openrouter-top] no snapshot at ${SNAPSHOT_PATH}; ` +
+				"leaving the built-in OpenRouter catalog in place.",
 		);
 		return;
 	}
