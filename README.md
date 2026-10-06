@@ -18,9 +18,9 @@ with `models` **replaces** the whole list, which is what shrinking needs.
 
 ## How it works
 
-1. The snapshot lives at `~/.pi/agent/openrouter-top50.json` — pi-format
-   model cards, **static**, pinned 2026-08-18 from OpenRouter's live
-   top-weekly ranking.
+1. The snapshot is `openrouter-top50.json` in this repo — pi-format model
+   cards, **static**, pinned 2026-08-18 from OpenRouter's live top-weekly
+   ranking.
 2. At every pi startup the extension reads that file and registers
    `pi.registerProvider("openrouter", { api, baseUrl, models })`, replacing
    the built-in catalog. The OpenRouter key keeps resolving from
@@ -31,8 +31,8 @@ with `models` **replaces** the whole list, which is what shrinking needs.
 
 ## Re-pinning the list (manual, when you want)
 
-Regenerate `~/.pi/agent/openrouter-top50.json` by hand from
+Regenerate `openrouter-top50.json` by hand from
 `https://openrouter.ai/api/frontend/v1/models/find?active=true&fmt=cards&order=top-weekly`
 (the first 50 `data.models` entries, mapped to pi model cards with
-pricing/limits from `https://openrouter.ai/api/v1/models`), then restart
-agentchatbox so the picker cache re-probes.
+pricing/limits from `https://openrouter.ai/api/v1/models`), commit it, then
+restart agentchatbox so the picker cache re-probes.

@@ -15,11 +15,11 @@
  * so the OpenRouter key from ~/.pi/agent/auth.json keeps working (pi's
  * provider composition falls back to the built-in provider's auth).
  *
- * The snapshot is STATIC: ~/.pi/agent/openrouter-top50.json was pinned on
+ * The snapshot is STATIC: openrouter-top50.json in this repo was pinned on
  * 2026-08-18 (top-weekly ranks as of that date) and is only ever read, never
  * refreshed. To re-pin a newer list later, regenerate that file manually
  * (source data: GET https://openrouter.ai/api/frontend/v1/models/find?active=true&fmt=cards&order=top-weekly)
- * and restart agentchatbox so the picker cache re-probes.
+ * commit it, and restart agentchatbox so the picker cache re-probes.
  *
  * If the snapshot is missing, we skip registration and pi shows its
  * built-in catalog (safety net).
@@ -27,10 +27,11 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SNAPSHOT_PATH = join(homedir(), ".pi", "agent", "openrouter-top50.json");
+// The snapshot is committed next to the extension, so it is versioned and
+// restored with the repo.
+const SNAPSHOT_PATH = fileURLToPath(new URL("../openrouter-top50.json", import.meta.url));
 
 interface Snapshot {
 	checkedAt?: number;

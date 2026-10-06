@@ -1,7 +1,7 @@
 {
   "name": "pi-openrouter-top",
   "version": "0.2.0",
-  "description": "Replaces pi's OpenRouter model list with a static top-50 snapshot (top-weekly ranks from https://openrouter.ai/models?order=top-weekly, pinned 2026-08-18). Provider override is fed from the static file ~/.pi/agent/openrouter-top50.json, so the ACB/pi picker shows exactly 50 curated-by-usage models instead of pi's ~300-model built-in snapshot. Static by design — no refresh machinery.",
+  "description": "Replaces pi's OpenRouter model list with a static top-50 snapshot (top-weekly ranks from https://openrouter.ai/models?order=top-weekly, pinned 2026-08-18). Provider override is fed from the static file openrouter-top50.json in this repo, so the ACB/pi picker shows exactly 50 curated-by-usage models instead of pi's ~300-model built-in snapshot. Static by design — no refresh machinery.",
   "keywords": [
     "pi-package",
     "openrouter",
@@ -12,5 +12,8 @@
     "extensions": [
       "./extensions/index.ts"
     ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
   }
 }
