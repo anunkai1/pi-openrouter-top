@@ -1,6 +1,6 @@
 # pi-openrouter-top
 
-Replaces pi's OpenRouter model list with a **static top-50 snapshot** — the
+Replaces pi's OpenRouter model list with a **top-50 snapshot** — the
 top 50 models by weekly token usage as ranked on
 [https://openrouter.ai/models?order=top-weekly](https://openrouter.ai/models?order=top-weekly).
 
@@ -19,20 +19,21 @@ with `models` **replaces** the whole list, which is what shrinking needs.
 ## How it works
 
 1. The snapshot is `openrouter-top50.json` in this repo — pi-format model
-   cards, **static**, pinned 2026-08-18 from OpenRouter's live top-weekly
-   ranking.
+   cards, refreshed from OpenRouter's live top-weekly ranking (currently
+   2026-11-20).
 2. At every pi startup the extension reads that file and registers
-   `pi.registerProvider("openrouter", { api, baseUrl, models })`, replacing
-   the built-in catalog. The OpenRouter key keeps resolving from
-   `~/.pi/agent/auth.json`.
-3. No sync scripts, no network, no fallback copies. If the snapshot is
-   missing, registration is skipped and the built-in catalog remains as a
-   safety net.
+   `pi.registerProvider("openrouter", { api, baseUrl, models })` while
+   preserving per-model `api` (e.g. `anthropic-messages`), `baseUrl`,
+   `thinkingLevelMap`, `compat`, and `inputLimits`. The OpenRouter key
+   keeps resolving from `~/.pi/agent/auth.json`.
+3. No runtime network calls at startup. If the snapshot is missing,
+   registration is skipped and the built-in catalog remains as a safety net.
 
-## Re-pinning the list (manual, when you want)
+## Refreshing the list (manual, when you want)
 
-Regenerate `openrouter-top50.json` by hand from
+Run `npm run refresh` (executes `scripts/refresh-top50.mjs`) to regenerate
+`openrouter-top50.json` from
 `https://openrouter.ai/api/frontend/v1/models/find?active=true&fmt=cards&order=top-weekly`
-(the first 50 `data.models` entries, mapped to pi model cards with
-pricing/limits from `https://openrouter.ai/api/v1/models`), commit it, then
-restart agentchatbox so the picker cache re-probes.
+merged with `https://openrouter.ai/api/v1/models` and `pi-ai` metadata,
+run `npm test`, commit it, then restart agentchatbox so the picker cache
+re-probes.

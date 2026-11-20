@@ -1,51 +1,53 @@
 /**
  * pi-openrouter-top — OpenRouter "Top 50 weekly" provider override.
  *
- * Replaces pi's built-in OpenRouter model catalog (a ~300-model snapshot
- * baked into the pi-ai package at release time, plus pi's never-used-in-ACB
- * remote pi.dev catalog) with the top 50 models by weekly token usage, as
- * ranked on https://openrouter.ai/models?order=top-weekly.
+ * Replaces pi's built-in OpenRouter model catalog with the top 50 models by
+ * weekly token usage, as ranked on https://openrouter.ai/models?order=top-weekly.
  *
- * Why an extension and not ~/.pi/agent/models.json: models.json MERGES
- * custom definitions into a built-in SDK provider (replace by id, append
- * the rest) — it cannot shrink the list. An extension-registered provider
- * with `models` REPLACES the entire list (pi docs: "If provided, replaces
- * all existing models for this provider"), which is what shrinking to 50
- * requires. Auth is untouched: the override supplies only api/baseUrl/models,
- * so the OpenRouter key from ~/.pi/agent/auth.json keeps working (pi's
- * provider composition falls back to the built-in provider's auth).
- *
- * The snapshot is STATIC: openrouter-top50.json in this repo was pinned on
- * 2026-08-18 (top-weekly ranks as of that date) and is only ever read, never
- * refreshed. To re-pin a newer list later, regenerate that file manually
- * (source data: GET https://openrouter.ai/api/frontend/v1/models/find?active=true&fmt=cards&order=top-weekly)
- * commit it, and restart agentchatbox so the picker cache re-probes.
- *
- * If the snapshot is missing, we skip registration and pi shows its
- * built-in catalog (safety net).
+ * Preserves per-model `api` (e.g. "anthropic-messages" for Anthropic models),
+ * `baseUrl`, `thinkingLevelMap`, `compat`, and `inputLimits` so routing,
+ * prompt caching, and thinking-level clamping match pi's built-in definitions.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-// The snapshot is committed next to the extension, so it is versioned and
-// restored with the repo.
 const SNAPSHOT_PATH = fileURLToPath(new URL("../openrouter-top50.json", import.meta.url));
+const DEFAULT_API = "openai-completions";
+const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+
+interface SnapshotModel {
+	id: string;
+	name: string;
+	api?: "openai-completions" | "anthropic-messages" | "openai-responses";
+	baseUrl?: string;
+	reasoning?: boolean;
+	thinkingLevelMap?: Record<string, string | null>;
+	input?: string[];
+	cost?: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+		tiers?: Array<{
+			inputTokensAbove: number;
+			input: number;
+			output: number;
+			cacheRead: number;
+			cacheWrite: number;
+		}>;
+	};
+	contextWindow?: number;
+	maxTokens?: number;
+	compat?: Record<string, unknown>;
+	inputLimits?: Record<string, unknown>;
+}
 
 interface Snapshot {
 	checkedAt?: number;
 	source?: string;
-	models?: Array<{
-		id: string;
-		name: string;
-		reasoning?: boolean;
-		input?: string[];
-		cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
-		contextWindow?: number;
-		maxTokens?: number;
-		compat?: Record<string, unknown>;
-	}>;
+	models?: SnapshotModel[];
 }
 
 async function loadSnapshot(): Promise<Snapshot | null> {
@@ -59,7 +61,7 @@ async function loadSnapshot(): Promise<Snapshot | null> {
 
 export default async function (pi: ExtensionAPI) {
 	const snapshot = await loadSnapshot();
-	if (!snapshot) {
+	if (!snapshot?.models) {
 		console.warn(
 			`[pi-openrouter-top] no snapshot at ${SNAPSHOT_PATH}; ` +
 				"leaving the built-in OpenRouter catalog in place.",
@@ -68,17 +70,21 @@ export default async function (pi: ExtensionAPI) {
 	}
 
 	pi.registerProvider("openrouter", {
-		api: "openai-completions",
-		baseUrl: "https://openrouter.ai/api/v1",
+		api: DEFAULT_API,
+		baseUrl: DEFAULT_BASE_URL,
 		models: snapshot.models.map((model) => ({
 			id: model.id,
 			name: model.name,
+			api: model.api ?? DEFAULT_API,
+			baseUrl: model.baseUrl ?? (model.api === "anthropic-messages" ? "https://openrouter.ai/api" : DEFAULT_BASE_URL),
 			reasoning: model.reasoning ?? false,
-			input: (model.input ?? ["text"]) as ("text" | "image")[],
+			...(model.thinkingLevelMap ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
+			input: (model.input ?? ["text"]).filter((m): m is "text" | "image" => m === "text" || m === "image"),
 			cost: model.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: model.contextWindow ?? 128000,
 			maxTokens: model.maxTokens ?? 16384,
 			...(model.compat ? { compat: model.compat } : {}),
+			...(model.inputLimits ? { inputLimits: model.inputLimits } : {}),
 		})),
 	});
 
