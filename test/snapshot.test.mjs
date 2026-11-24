@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { buildModelEntry, inferThinkingLevelMap } from "../scripts/refresh-top50.mjs";
 
 const snapshot = JSON.parse(readFileSync(new URL("../openrouter-top50.json", import.meta.url), "utf8"));
 
@@ -31,4 +32,26 @@ test("the extension reads the committed snapshot path and forwards per-model met
   assert.match(source, /thinkingLevelMap/);
   assert.match(source, /model\.api/);
   assert.match(source, /model\.baseUrl/);
+});
+
+test("refresh fallback emits thinkingLevelMap when card.supports_reasoning is true without reasoning in supported_parameters", () => {
+  const entry = buildModelEntry(
+    { slug: "vendor/new-reasoner", name: "New Reasoner", supports_reasoning: true, context_length: 65536 },
+    { id: "vendor/new-reasoner", supported_parameters: ["temperature"], architecture: { input_modalities: ["text"] } },
+    undefined,
+  );
+  assert.equal(entry.reasoning, true);
+  assert.ok(entry.thinkingLevelMap && typeof entry.thinkingLevelMap === "object", "thinkingLevelMap emitted for card.supports_reasoning");
+  assert.equal(entry.thinkingLevelMap.high, "high");
+
+  const nonReasoner = buildModelEntry(
+    { slug: "vendor/plain-model", name: "Plain Model", supports_reasoning: false },
+    { id: "vendor/plain-model", supported_parameters: ["temperature"] },
+    undefined,
+  );
+  assert.equal(nonReasoner.reasoning, false);
+  assert.equal(nonReasoner.thinkingLevelMap, undefined);
+
+  assert.ok(inferThinkingLevelMap("vendor/new-reasoner", [], undefined, true));
+  assert.equal(inferThinkingLevelMap("vendor/plain-model", [], undefined, false), undefined);
 });

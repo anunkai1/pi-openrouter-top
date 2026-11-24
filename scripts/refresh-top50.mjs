@@ -29,10 +29,10 @@ function perMillion(raw) {
 	return Number((num * 1_000_000).toFixed(6));
 }
 
-function inferThinkingLevelMap(id, supportedParams, piModel) {
+export function inferThinkingLevelMap(id, supportedParams, piModel, supportsReasoning = false) {
 	if (piModel?.thinkingLevelMap) return piModel.thinkingLevelMap;
 	const params = new Set(supportedParams ?? []);
-	if (!params.has("reasoning")) return undefined;
+	if (!params.has("reasoning") && !supportsReasoning) return undefined;
 	if (id.startsWith("google/gemini-4")) {
 		return { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: null };
 	}
@@ -40,6 +40,59 @@ function inferThinkingLevelMap(id, supportedParams, piModel) {
 		return { off: "none", minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: null };
 	}
 	return { off: "none", minimal: null, low: null, medium: null, high: "high", xhigh: null, max: null };
+}
+
+export function buildModelEntry(card, apiModel, piModel) {
+	const id = card?.slug ?? apiModel?.id;
+	const isAnthropic = id.startsWith("anthropic/");
+	const api = piModel?.api ?? (isAnthropic ? "anthropic-messages" : "openai-completions");
+	const baseUrl =
+		piModel?.baseUrl ?? (api === "anthropic-messages" ? "https://openrouter.ai/api" : "https://openrouter.ai/api/v1");
+	const params = new Set(apiModel.supported_parameters ?? []);
+	const reasoning = piModel?.reasoning ?? (params.has("reasoning") || Boolean(card.supports_reasoning));
+	const rawInputs = piModel?.input ?? apiModel.architecture?.input_modalities ?? ["text"];
+	const input = rawInputs.filter((m) => m === "text" || m === "image");
+	if (input.length === 0) input.push("text");
+
+	const pricing = apiModel.pricing ?? {};
+	const cost = piModel?.cost ?? {
+		input: perMillion(pricing.prompt),
+		output: perMillion(pricing.completion),
+		cacheRead: perMillion(pricing.input_cache_read),
+		cacheWrite: perMillion(pricing.input_cache_write),
+	};
+
+	const thinkingLevelMap = inferThinkingLevelMap(
+		id,
+		apiModel.supported_parameters,
+		piModel,
+		Boolean(card.supports_reasoning),
+	);
+	const compat =
+		piModel?.compat ??
+		(api === "anthropic-messages"
+			? { forceAdaptiveThinking: true, supportsMidConvoEffort: true }
+			: {
+					supportsDeveloperRole: false,
+					...(reasoning ? { thinkingFormat: "openrouter" } : {}),
+					supportsStrictMode: true,
+					sendSessionAffinityHeaders: true,
+				});
+
+	return {
+		id,
+		name: piModel?.name ?? apiModel.name ?? card.name ?? id,
+		api,
+		baseUrl,
+		reasoning,
+		...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+		input,
+		cost,
+		contextWindow: piModel?.contextWindow ?? apiModel.context_length ?? card.context_length ?? 128000,
+		maxTokens: piModel?.maxTokens ?? apiModel.top_provider?.max_completion_tokens ?? 16384,
+		...(compat ? { compat } : {}),
+		...(piModel?.inputLimits ? { inputLimits: piModel.inputLimits } : {}),
+	};
 }
 
 async function main() {
@@ -64,51 +117,7 @@ async function main() {
 		if (!outMods.includes("text")) continue;
 
 		const piModel = piAiMap.get(id);
-		const isAnthropic = id.startsWith("anthropic/");
-		const api = piModel?.api ?? (isAnthropic ? "anthropic-messages" : "openai-completions");
-		const baseUrl =
-			piModel?.baseUrl ?? (api === "anthropic-messages" ? "https://openrouter.ai/api" : "https://openrouter.ai/api/v1");
-		const params = new Set(apiModel.supported_parameters ?? []);
-		const reasoning = piModel?.reasoning ?? (params.has("reasoning") || Boolean(card.supports_reasoning));
-		const rawInputs = piModel?.input ?? apiModel.architecture?.input_modalities ?? ["text"];
-		const input = rawInputs.filter((m) => m === "text" || m === "image");
-		if (input.length === 0) input.push("text");
-
-		const pricing = apiModel.pricing ?? {};
-		const cost = piModel?.cost ?? {
-			input: perMillion(pricing.prompt),
-			output: perMillion(pricing.completion),
-			cacheRead: perMillion(pricing.input_cache_read),
-			cacheWrite: perMillion(pricing.input_cache_write),
-		};
-
-		const thinkingLevelMap = inferThinkingLevelMap(id, apiModel.supported_parameters, piModel);
-		const compat =
-			piModel?.compat ??
-			(api === "anthropic-messages"
-				? { forceAdaptiveThinking: true, supportsMidConvoEffort: true }
-				: {
-						supportsDeveloperRole: false,
-						...(reasoning ? { thinkingFormat: "openrouter" } : {}),
-						supportsStrictMode: true,
-						sendSessionAffinityHeaders: true,
-					});
-
-		const entry = {
-			id,
-			name: piModel?.name ?? apiModel.name ?? card.name ?? id,
-			api,
-			baseUrl,
-			reasoning,
-			...(thinkingLevelMap ? { thinkingLevelMap } : {}),
-			input,
-			cost,
-			contextWindow: piModel?.contextWindow ?? apiModel.context_length ?? card.context_length ?? 128000,
-			maxTokens: piModel?.maxTokens ?? apiModel.top_provider?.max_completion_tokens ?? 16384,
-			...(compat ? { compat } : {}),
-			...(piModel?.inputLimits ? { inputLimits: piModel.inputLimits } : {}),
-		};
-		models.push(entry);
+		models.push(buildModelEntry(card, apiModel, piModel));
 		if (models.length >= 50) break;
 	}
 
@@ -122,7 +131,9 @@ async function main() {
 	console.log(`Wrote ${models.length} models to ${OUTPUT}`);
 }
 
-main().catch((err) => {
-	console.error(err);
-	process.exit(1);
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	main().catch((err) => {
+		console.error(err);
+		process.exit(1);
+	});
+}
